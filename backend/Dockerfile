@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:22-slim
 
 # LibreOffice headless handles docx/pptx/xlsx/odt/etc conversion to PDF.
 RUN apt-get update && apt-get install -y --no-install-recommends \
