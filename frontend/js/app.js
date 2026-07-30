@@ -160,7 +160,7 @@ function renderQueue() {
     li.draggable = true;
     li.dataset.id = doc.id;
     li.innerHTML = `
-      <span class="queue-handle" aria-hidden="true">⠿</span>
+      <span class="queue-handle" aria-hidden="true">●</span>
       <span class="queue-index">${index + 1}</span>
       <span class="queue-filename">${doc.filename}</span>
       <button class="queue-remove" data-id="${doc.id}" aria-label="Remove ${doc.filename}">&times;</button>
