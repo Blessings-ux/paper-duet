@@ -49,15 +49,17 @@ async function imageToPdf(inputPath, workDir) {
 
 async function officeToPdf(inputPath, workDir) {
   // soffice writes <basename>.pdf into --outdir using the same file name.
-  await execFileAsync(SOFFICE_PATH, [
+  const {  stdout, stderr } = await execFileAsync(SOFFICE_PATH, [
     '--headless',
     '--norestore',
+        `-env:UserInstallation=file://${workDir}/lo-profile`,
     '--convert-to',
     'pdf',
     '--outdir',
     workDir,
     inputPath,
   ]);
+    console.log('soffice said:', stdout, stderr);
 
   const outPath = path.join(workDir, `${path.parse(inputPath).name}.pdf`);
 

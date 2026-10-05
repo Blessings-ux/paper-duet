@@ -1,18 +1,6 @@
 const { createClient } = supabase;
 const sb = createClient(PAPER_DUET_CONFIG.SUPABASE_URL, PAPER_DUET_CONFIG.SUPABASE_ANON_KEY);
 
-const heroSection = document.getElementById('heroSection');
-const dashboardSection = document.getElementById('dashboardSection');
-const headerAccount = document.getElementById('headerAccount');
-
-const authForm = document.getElementById('authForm');
-const authEmail = document.getElementById('authEmail');
-const authPassword = document.getElementById('authPassword');
-const authSubmit = document.getElementById('authSubmit');
-const authMessage = document.getElementById('authMessage');
-const toggleButtons = document.querySelectorAll('.auth-toggle-btn');
-let authMode = 'signin';
-
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const browseBtn = document.getElementById('browseBtn');
@@ -20,80 +8,49 @@ const queueList = document.getElementById('queueList');
 const queueCount = document.getElementById('queueCount');
 const queueEmpty = document.getElementById('queueEmpty');
 const mergeBtn = document.getElementById('mergeBtn');
+const clearBtn = document.getElementById('clearBtn');
 const mergeStatus = document.getElementById('mergeStatus');
+const shrinkSelect = document.getElementById('shrinkSelect');
 
+const API = PAPER_DUET_CONFIG.BACKEND_URL;
 let documents = [];
 
-// ---------- Auth ----------
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
 
-toggleButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    authMode = btn.dataset.mode;
-    toggleButtons.forEach((b) => b.classList.toggle('is-active', b === btn));
-    authSubmit.textContent = authMode === 'signin' ? 'Sign in' : 'Create account';
-    authMessage.textContent = '';
-  });
-});
+// ---------- Guest session (no sign-up needed) ----------
 
-authForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  authMessage.textContent = '';
-  authSubmit.disabled = true;
-
-  const email = authEmail.value.trim();
-  const password = authPassword.value;
-
-  const { error } =
-    authMode === 'signin'
-      ? await sb.auth.signInWithPassword({ email, password })
-      : await sb.auth.signUp({ email, password });
-
-  authSubmit.disabled = false;
-
-  if (error) {
-    authMessage.textContent = error.message;
-    return;
-  }
-
-  if (authMode === 'signup') {
-    authMessage.textContent = 'Check your email to confirm your account, then sign in.';
-  }
-});
-
-async function getSession() {
+async function ensureSession() {
   const { data } = await sb.auth.getSession();
-  return data.session;
+  if (data.session) return data.session;
+
+  const { data: anon, error } = await sb.auth.signInAnonymously();
+  if (error) {
+    mergeStatus.textContent = "Couldn't start a session. Please refresh the page.";
+    throw error;
+  }
+  return anon.session;
 }
 
 async function authHeader() {
-  const session = await getSession();
-  return session ? { Authorization: `Bearer ${session.access_token}` } : {};
-}
-
-sb.auth.onAuthStateChange((_event, session) => {
-  renderAuthState(session);
-});
-
-async function renderAuthState(session) {
-  if (session?.user) {
-    heroSection.hidden = true;
-    dashboardSection.hidden = false;
-    headerAccount.innerHTML = `
-      <span class="account-email">${session.user.email}</span>
-      <button class="link-btn" id="signOutBtn">Sign out</button>
-    `;
-    document.getElementById('signOutBtn').addEventListener('click', () => sb.auth.signOut());
-    await loadDocuments();
-  } else {
-    heroSection.hidden = false;
-    dashboardSection.hidden = true;
-    headerAccount.innerHTML = '';
-  }
+  const session = await ensureSession();
+  return { Authorization: `Bearer ${session.access_token}` };
 }
 
 // ---------- Upload / dropzone ----------
 
-browseBtn.addEventListener('click', () => fileInput.click());
+browseBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  fileInput.click();
+});
+dropzone.addEventListener('click', (e) => {
+  if (e.target === dropzone || e.target.closest('.dropzone-title, .dropzone-hint, .dropzone-icon')) {
+    fileInput.click();
+  }
+});
 fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
 
 ['dragenter', 'dragover'].forEach((evt) =>
@@ -111,59 +68,89 @@ fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
 dropzone.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
 
 async function uploadFiles(fileList) {
-  const headers = await authHeader();
+  if (!fileList.length) return;
 
-  for (const file of fileList) {
-    const formData = new FormData();
-    formData.append('file', file);
+  try {
+    const headers = await authHeader();
 
-    mergeStatus.textContent = `Uploading ${file.name}...`;
-    const res = await fetch(`${PAPER_DUET_CONFIG.BACKEND_URL}/api/documents/upload`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
+    for (const file of fileList) {
+      const formData = new FormData();
+      formData.append('file', file);
 
-    if (!res.ok) {
+      setStatus(`Uploading ${file.name}...`);
+      const res = await fetch(`${API}/api/documents/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
       const body = await res.json().catch(() => ({}));
-      mergeStatus.textContent = `Couldn't upload ${file.name}: ${body.error || res.statusText}`;
-      return;
-    }
-  }
 
-  mergeStatus.textContent = '';
-  fileInput.value = '';
-  await loadDocuments();
+      if (!res.ok) {
+        setStatus(`Couldn't upload ${file.name}: ${body.error || res.statusText}`);
+        return;
+      }
+      if (!body.document) {
+        setStatus(`Uploaded ${file.name}, but the server didn't return its file record.`);
+        return;
+      }
+
+      documents.push(body.document);
+      renderQueue();
+    }
+
+    setStatus('Ready to merge');
+  } catch (error) {
+    setStatus(`Couldn't upload files: ${error.message || 'Please try again.'}`);
+  } finally {
+    fileInput.value = '';
+  }
 }
 
 // ---------- Queue list + reorder ----------
 
-async function loadDocuments() {
-  const headers = await authHeader();
-  const res = await fetch(`${PAPER_DUET_CONFIG.BACKEND_URL}/api/documents`, { headers });
-  if (!res.ok) return;
+function setStatus(text) {
+  mergeStatus.textContent = text;
+}
 
-  const body = await res.json();
-  documents = body.documents || [];
-  renderQueue();
+async function loadDocuments() {
+  try {
+    const headers = await authHeader();
+    const res = await fetch(`${API}/api/documents`, { headers });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || `Server responded with ${res.status}.`);
+    }
+    if (!Array.isArray(body.documents)) {
+      throw new Error('The server returned an invalid file list.');
+    }
+
+    documents = body.documents;
+    renderQueue();
+    return true;
+  } catch (error) {
+    setStatus(`Couldn't load files: ${error.message || 'Please refresh the page.'}`);
+    return false;
+  }
 }
 
 function renderQueue() {
   queueList.innerHTML = '';
   queueEmpty.hidden = documents.length > 0;
-  queueCount.textContent = `${documents.length} file${documents.length === 1 ? '' : 's'}`;
+  queueCount.textContent = `(${documents.length})`;
   mergeBtn.disabled = documents.length === 0;
+  clearBtn.hidden = documents.length === 0;
 
   documents.forEach((doc, index) => {
+    const name = escapeHtml(doc.filename);
     const li = document.createElement('li');
     li.className = 'queue-item';
     li.draggable = true;
     li.dataset.id = doc.id;
     li.innerHTML = `
-      <span class="queue-handle" aria-hidden="true">●</span>
+      <span class="queue-handle" aria-hidden="true">⋮⋮</span>
       <span class="queue-index">${index + 1}</span>
-      <span class="queue-filename">${doc.filename}</span>
-      <button class="queue-remove" data-id="${doc.id}" aria-label="Remove ${doc.filename}">&times;</button>
+      <span class="queue-filename">${name}</span>
+      <button class="queue-remove" data-id="${doc.id}" aria-label="Remove ${name}">&times;</button>
     `;
     queueList.appendChild(li);
   });
@@ -205,7 +192,7 @@ function reorderLocally(sourceId, targetId) {
 
 async function persistOrder() {
   const headers = await authHeader();
-  await fetch(`${PAPER_DUET_CONFIG.BACKEND_URL}/api/documents/reorder`, {
+  await fetch(`${API}/api/documents/reorder`, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ order: documents.map((d) => d.id) }),
@@ -214,28 +201,42 @@ async function persistOrder() {
 
 async function removeDocument(id) {
   const headers = await authHeader();
-  await fetch(`${PAPER_DUET_CONFIG.BACKEND_URL}/api/documents/${id}`, {
-    method: 'DELETE',
-    headers,
-  });
-  await loadDocuments();
+  await fetch(`${API}/api/documents/${id}`, { method: 'DELETE', headers });
+  if (!(await loadDocuments())) return;
+  if (!documents.length) setStatus('Waiting for files');
 }
+
+// ---------- Clear all ----------
+
+clearBtn.addEventListener('click', async () => {
+  if (!documents.length) return;
+  clearBtn.disabled = true;
+  setStatus('Clearing...');
+  const headers = await authHeader();
+  await Promise.all(
+    documents.map((d) => fetch(`${API}/api/documents/${d.id}`, { method: 'DELETE', headers }))
+  );
+  clearBtn.disabled = false;
+  if (!(await loadDocuments())) return;
+  setStatus('Waiting for files');
+});
 
 // ---------- Merge ----------
 
 mergeBtn.addEventListener('click', async () => {
   mergeBtn.disabled = true;
-  mergeStatus.textContent = 'Stitching your files together...';
+  setStatus(shrinkSelect.value ? 'Stitching and shrinking your files...' : 'Stitching your files together...');
 
   const headers = await authHeader();
-  const res = await fetch(`${PAPER_DUET_CONFIG.BACKEND_URL}/api/merge`, {
+  const res = await fetch(`${API}/api/merge`, {
     method: 'POST',
-    headers,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetMb: shrinkSelect.value ? Number(shrinkSelect.value) : null }),
   });
 
   const body = await res.json();
   if (!res.ok) {
-    mergeStatus.textContent = body.error || 'Something went wrong starting the merge.';
+    setStatus(body.error || 'Something went wrong starting the merge.');
     mergeBtn.disabled = false;
     return;
   }
@@ -245,7 +246,7 @@ mergeBtn.addEventListener('click', async () => {
 
 async function pollMergeJob(jobId) {
   const headers = await authHeader();
-  const res = await fetch(`${PAPER_DUET_CONFIG.BACKEND_URL}/api/merge/${jobId}`, { headers });
+  const res = await fetch(`${API}/api/merge/${jobId}`, { headers });
   const body = await res.json();
   const job = body.job;
 
@@ -254,18 +255,29 @@ async function pollMergeJob(jobId) {
     return;
   }
 
-  mergeBtn.disabled = false;
+  mergeBtn.disabled = documents.length === 0;
 
   if (job.status === 'done') {
-    mergeStatus.innerHTML = `Done — <a href="${job.output_url}" target="_blank" rel="noopener">download your paper</a>`;
+    const size = job.final_size_bytes ? ` (${(job.final_size_bytes / 1048576).toFixed(1)} MB)` : '';
+    const warn = job.target_met === false
+      ? " It's still over your size limit. We shrank it as far as we could."
+      : '';
+    mergeStatus.innerHTML = `Done — <a href="${job.output_url}" target="_blank" rel="noopener">download your PDF</a>${size}.${warn}`;
+    await loadDocuments(); // the server deleted the originals, so refresh the queue
   } else {
-    mergeStatus.textContent = job.error_message || 'The merge failed. Please try again.';
+    setStatus(job.error_message || 'The merge failed. Please try again.');
   }
 }
 
 // ---------- Boot ----------
 
 (async () => {
-  const session = await getSession();
-  renderAuthState(session);
+  try {
+    await ensureSession();
+    if (await loadDocuments()) {
+      setStatus(documents.length ? 'Ready to merge' : 'Waiting for files');
+    }
+  } catch (error) {
+    setStatus(`Couldn't start a session: ${error.message || 'Please refresh the page.'}`);
+  }
 })();
