@@ -1,3 +1,4 @@
+import { compressToTarget } from '../services/compress.js';
 import { PDFDocument } from 'pdf-lib';
 import fs from 'fs/promises';
 

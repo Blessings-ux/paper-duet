@@ -1,3 +1,4 @@
+import { compressToTarget } from '../services/compress.js';
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs/promises';
@@ -20,6 +21,9 @@ router.post('/', requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   if (!docs?.length) return res.status(400).json({ error: 'No documents to merge' });
 
+  const wantedMb = Number(req.body?.targetMb);
+  const targetBytes = [2, 5].includes(wantedMb) ? wantedMb * 1024 * 1024 : 0;
+
   const { data: job, error: jobError } = await supabaseAdmin
     .from('merge_jobs')
     .insert({ user_id: req.user.id, status: 'processing' })
@@ -32,7 +36,7 @@ router.post('/', requireAuth, async (req, res) => {
   // since office-format conversions can take a few seconds each.
   res.json({ jobId: job.id, status: 'processing' });
 
-  processMergeJob(job.id, req.user.id, docs).catch((err) => {
+    processMergeJob(job.id, req.user.id, docs, targetBytes).catch((err) => {
     console.error(`Merge job ${job.id} failed:`, err);
     supabaseAdmin
       .from('merge_jobs')
@@ -42,7 +46,7 @@ router.post('/', requireAuth, async (req, res) => {
   });
 });
 
-async function processMergeJob(jobId, userId, docs) {
+async function processMergeJob(jobId, userId, docs, targetBytes) {
   const workDir = await makeTempWorkDir();
 
   try {
@@ -61,12 +65,21 @@ async function processMergeJob(jobId, userId, docs) {
       pdfPaths.push(pdfPath);
     }
 
-    const mergedBytes = await mergePdfs(pdfPaths);
+        const mergedBytes = await mergePdfs(pdfPaths);
+
+    let finalBytes = mergedBytes;
+    let targetMet = true;
+    if (targetBytes) {
+      const result = await compressToTarget(mergedBytes, targetBytes, workDir);
+      finalBytes = result.bytes;
+      targetMet = result.reachedTarget;
+      console.log(`Compression: ${mergedBytes.length} -> ${finalBytes.length} bytes, reached target: ${result.reachedTarget}`);
+    }
     const outputStoragePath = `${userId}/merged/${uuid()}.pdf`;
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(BUCKET)
-      .upload(outputStoragePath, mergedBytes, { contentType: 'application/pdf' });
+      .upload(outputStoragePath, finalBytes, { contentType: 'application/pdf' });
 
     if (uploadError) throw new Error(uploadError.message);
 
@@ -76,17 +89,36 @@ async function processMergeJob(jobId, userId, docs) {
 
     if (signError) throw new Error(signError.message);
 
-    await supabaseAdmin
+        await supabaseAdmin
       .from('merge_jobs')
       .update({
         status: 'done',
         output_path: outputStoragePath,
         output_url: signedUrlData.signedUrl,
+        final_size_bytes: finalBytes.length,
+        target_met: targetMet,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       })
       .eq('id', jobId);
+
+    await deleteOriginals(docs); // <-- new line
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
   }
+}
+// Originals are no longer needed once the merged PDF exists.
+// A cleanup failure is logged but never fails the job.
+async function deleteOriginals(docs) {
+  const { error: removeError } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .remove(docs.map((d) => d.storage_path));
+  if (removeError) console.error('Could not delete original files:', removeError.message);
+
+  const { error: rowError } = await supabaseAdmin
+    .from('documents')
+    .delete()
+    .in('id', docs.map((d) => d.id));
+  if (rowError) console.error('Could not delete document rows:', rowError.message);
 }
 
 // Frontend polls this to find out when a merge job is done.

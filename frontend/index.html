@@ -3,119 +3,104 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Paper Duet — Merge documents, slides and images into one PDF</title>
+<title>PaperDuet — Free PDF merger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/style.css" />
+<style>
+  .shrink-label { font-size: 0.85rem; margin-right: 0.4rem; }
+  .shrink-select { padding: 0.4rem 0.6rem; border-radius: 8px; }
+</style>
 </head>
 <body>
 
   <header class="site-header">
-    <div class="mark">
-      <svg class="stitch-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="1" y="1" width="22" height="22" rx="7" fill="#221F1A" />
-        <path d="M7 12.5l3.2 3.2L17 8.5" fill="none" stroke="#F7F5EE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <span class="mark-word">Paper Duet</span>
-    </div>
+    <a class="mark" href="/">
+      <img src="img/logo-icon.svg" alt="" class="logo-icon" />
+      <span class="logo-word">Paper<b>Duet</b></span>
+    </a>
     <nav class="site-nav">
       <a href="#how-it-works">How it works</a>
-      <a href="#dashboardSection" class="nav-stack-link">Your stack</a>
+      <a href="#privacy">Privacy</a>
     </nav>
-    <div class="header-account" id="headerAccount"><a class="pill-btn" href="#authCard">Sign In</a></div>
   </header>
 
   <main>
-    <!-- HERO + AUTH (shown when signed out) -->
-    <section class="hero" id="heroSection">
-      <div class="hero-copy">
-        <p class="eyebrow">one file, no matter what you started with</p>
-        <h1>Merge your documents with quiet precision.</h1>
-        <p class="hero-sub">A thoughtful space for binding PDFs, images and presentations into one perfect volume.</p>
-      </div>
-
-      <div class="auth-card" id="authCard">
-        <div class="auth-toggle">
-          <button class="auth-toggle-btn is-active" data-mode="signin">Sign in</button>
-          <button class="auth-toggle-btn" data-mode="signup">Sign up</button>
-        </div>
-        <form id="authForm">
-          <label class="field">
-            <span>Email</span>
-            <input type="email" id="authEmail" required autocomplete="email" />
-          </label>
-          <label class="field">
-            <span>Password</span>
-            <input type="password" id="authPassword" required minlength="6" autocomplete="current-password" />
-          </label>
-          <button type="submit" class="btn btn-primary" id="authSubmit">Sign in</button>
-          <p class="auth-message" id="authMessage" role="status"></p>
-        </form>
-      </div>
+    <section class="intro">
+      <h1>Merge any files into <span>one PDF.</span></h1>
+      <p class="hero-sub">Drop in PDFs, Word files, slides and photos. Put them in order. Download one clean PDF.</p>
     </section>
 
-    <!-- DASHBOARD (shown when signed in) -->
-    <section class="dashboard" id="dashboardSection" hidden>
 
-      <div class="dropzone" id="dropzone">
-        <input type="file" id="fileInput" multiple hidden />
-        <div class="dropzone-icon" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
+    <section class="dashboard" id="dashboardSection">
+      <div class="merger-card">
+
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" multiple hidden />
+          <div class="dropzone-icon" aria-hidden="true"></div>
+          <p class="dropzone-title">Drop files here to start</p>
+          <p class="dropzone-hint">PDF, Word (.docx), PowerPoint (.pptx), JPG, PNG and more</p>
+          <p class="dropzone-hint">Your files are deleted after your download.</p>
+          <button type="button" class="btn btn-primary btn-choose" id="browseBtn">Choose files</button>
         </div>
-        <p class="dropzone-title">Drag files here</p>
-        <p class="dropzone-sub">or <button type="button" class="link-btn" id="browseBtn">browse from your device</button></p>
-        <p class="dropzone-hint">PDFs, Word, PowerPoint, images, and more — each becomes a page in your merged paper.</p>
-      </div>
 
-      <div class="queue-panel">
-        <div class="queue-header">
-          <h2>Current stack</h2>
-          <span class="queue-count" id="queueCount">0 files</span>
+        <div class="queue-panel">
+          <div class="queue-header">
+            <h2>Files in queue <span class="queue-count" id="queueCount">(0)</span></h2>
+            <span class="queue-hint">Drag to reorder</span>
+          </div>
+          <ul class="queue-list" id="queueList"></ul>
+          <p class="queue-empty" id="queueEmpty">No files yet. Add a few above — they'll appear here in order.</p>
         </div>
-        <ul class="queue-list" id="queueList"></ul>
-        <p class="queue-empty" id="queueEmpty">Nothing here yet — add files above.</p>
-      </div>
 
+        <div class="merge-bar">
+          <div class="merge-status" id="mergeStatus" role="status">Waiting for files</div>
+          <label class="shrink-label" for="shrinkSelect">Make it smaller</label>
+          <select id="shrinkSelect" class="shrink-select">
+            <option value="">Don't shrink</option>
+            <option value="5">Under 5 MB</option>
+            <option value="2">Under 2 MB</option>
+          </select>
+          <button type="button" class="clear-btn" id="clearBtn">Clear all</button>
+          <button type="button" class="btn btn-merge" id="mergeBtn" disabled>Merge &amp; download</button>
+        </div>
+
+      </div>
     </section>
   </main>
 
   <section id="how-it-works" class="how-it-works">
     <div class="how-step">
       <span class="how-num">01</span>
-      <h3>Collect</h3>
-      <p>Add any mix of PDFs, Word files, decks and photos — two or two hundred.</p>
+      <h3>Drop your files</h3>
+      <p>PDFs, Word documents, slide decks and photos — mix them freely.</p>
     </div>
     <div class="how-step">
       <span class="how-num">02</span>
-      <h3>Arrange</h3>
-      <p>Drag each sheet into place. The stack is the exact order of your PDF.</p>
+      <h3>Put them in order</h3>
+      <p>Drag cards around, or use the arrows, until the sequence is right.</p>
     </div>
     <div class="how-step">
       <span class="how-num">03</span>
-      <h3>Bind</h3>
-      <p>One file out, page sizes normalised, nothing left behind.</p>
+      <h3>Download one PDF</h3>
+      <p>One click gives you a single clean file, ready to send.</p>
     </div>
   </section>
 
-  <div class="merge-bar" id="dashboardSection2" hidden>
-    <div class="merge-status" id="mergeStatus" role="status">Ready when you are.</div>
-    <button class="btn" id="mergeBtn" disabled>Stitch into one PDF</button>
-  </div>
+  <ul class="trust-row">
+    <li>Free forever</li>
+    <li>No watermarks</li>
+    <li>Files deleted after merging</li>
+  </ul>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" ></script>
+  <footer class="site-footer" id="privacy">
+    <span>© 2026 PaperDuet. Free PDF merger.</span>
+    <span>Word and slide files are converted to text and images — complex layouts may simplify.</span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
-  <script>
-    // Mirror the dashboard section's visibility onto the floating merge bar,
-    // since it now lives outside <main> so it can float above everything.
-    const dash = document.getElementById('dashboardSection');
-    const bar = document.getElementById('dashboardSection2');
-    const syncBar = () => { bar.hidden = dash.hidden; };
-    new MutationObserver(syncBar).observe(dash, { attributes: true, attributeFilter: ['hidden'] });
-    syncBar();
-  </script>
 </body>
 </html>
