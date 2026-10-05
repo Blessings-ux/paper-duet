@@ -21,6 +21,9 @@ router.post('/', requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   if (!docs?.length) return res.status(400).json({ error: 'No documents to merge' });
 
+  const wantedMb = Number(req.body?.targetMb);
+  const targetBytes = [2, 5].includes(wantedMb) ? wantedMb * 1024 * 1024 : 0;
+
   const { data: job, error: jobError } = await supabaseAdmin
     .from('merge_jobs')
     .insert({ user_id: req.user.id, status: 'processing' })
@@ -33,7 +36,7 @@ router.post('/', requireAuth, async (req, res) => {
   // since office-format conversions can take a few seconds each.
   res.json({ jobId: job.id, status: 'processing' });
 
-  processMergeJob(job.id, req.user.id, docs).catch((err) => {
+    processMergeJob(job.id, req.user.id, docs, targetBytes).catch((err) => {
     console.error(`Merge job ${job.id} failed:`, err);
     supabaseAdmin
       .from('merge_jobs')
@@ -43,7 +46,7 @@ router.post('/', requireAuth, async (req, res) => {
   });
 });
 
-async function processMergeJob(jobId, userId, docs) {
+async function processMergeJob(jobId, userId, docs, targetBytes) {
   const workDir = await makeTempWorkDir();
 
   try {
@@ -62,12 +65,19 @@ async function processMergeJob(jobId, userId, docs) {
       pdfPaths.push(pdfPath);
     }
 
-    const mergedBytes = await mergePdfs(pdfPaths);
+        const mergedBytes = await mergePdfs(pdfPaths);
+
+    let finalBytes = mergedBytes;
+    if (targetBytes) {
+      const result = await compressToTarget(mergedBytes, targetBytes, workDir);
+      finalBytes = result.bytes;
+      console.log(`Compression: ${mergedBytes.length} -> ${finalBytes.length} bytes, reached target: ${result.reachedTarget}`);
+    }
     const outputStoragePath = `${userId}/merged/${uuid()}.pdf`;
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(BUCKET)
-      .upload(outputStoragePath, mergedBytes, { contentType: 'application/pdf' });
+      .upload(outputStoragePath, finalBytes, { contentType: 'application/pdf' });
 
     if (uploadError) throw new Error(uploadError.message);
 
