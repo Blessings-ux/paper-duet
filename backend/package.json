@@ -1,12 +1,12 @@
 {
   "name": "paper-duet-backend",
   "version": "1.0.0",
-  "description": "Paper Duet backend — converts and merges any documents into a single PDF",
+  "description": "Paper Duet backend \u2014 converts and merges any documents into a single PDF",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node init && node server.js",
+    "dev": "node init && node --watch server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
