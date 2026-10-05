@@ -68,9 +68,11 @@ async function processMergeJob(jobId, userId, docs, targetBytes) {
         const mergedBytes = await mergePdfs(pdfPaths);
 
     let finalBytes = mergedBytes;
+    let targetMet = true;
     if (targetBytes) {
       const result = await compressToTarget(mergedBytes, targetBytes, workDir);
       finalBytes = result.bytes;
+      targetMet = result.reachedTarget;
       console.log(`Compression: ${mergedBytes.length} -> ${finalBytes.length} bytes, reached target: ${result.reachedTarget}`);
     }
     const outputStoragePath = `${userId}/merged/${uuid()}.pdf`;
@@ -93,6 +95,8 @@ async function processMergeJob(jobId, userId, docs, targetBytes) {
         status: 'done',
         output_path: outputStoragePath,
         output_url: signedUrlData.signedUrl,
+        final_size_bytes: finalBytes.length,
+        target_met: targetMet,
         expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       })
       .eq('id', jobId);
