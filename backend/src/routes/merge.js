@@ -1,3 +1,4 @@
+import { compressToTarget } from '../services/compress.js';
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs/promises';
@@ -76,17 +77,34 @@ async function processMergeJob(jobId, userId, docs) {
 
     if (signError) throw new Error(signError.message);
 
-    await supabaseAdmin
+        await supabaseAdmin
       .from('merge_jobs')
       .update({
         status: 'done',
         output_path: outputStoragePath,
         output_url: signedUrlData.signedUrl,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       })
       .eq('id', jobId);
+
+    await deleteOriginals(docs); // <-- new line
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
   }
+}
+// Originals are no longer needed once the merged PDF exists.
+// A cleanup failure is logged but never fails the job.
+async function deleteOriginals(docs) {
+  const { error: removeError } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .remove(docs.map((d) => d.storage_path));
+  if (removeError) console.error('Could not delete original files:', removeError.message);
+
+  const { error: rowError } = await supabaseAdmin
+    .from('documents')
+    .delete()
+    .in('id', docs.map((d) => d.id));
+  if (rowError) console.error('Could not delete document rows:', rowError.message);
 }
 
 // Frontend polls this to find out when a merge job is done.
